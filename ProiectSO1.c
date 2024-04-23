@@ -22,6 +22,32 @@ int verificare_existenta(const char *path) {
     return (stat(path, &buffer) == 0);
 }
 
+int verificare_drepturi(const char *path) {
+    struct stat fileInfo;
+    if (stat(path, &fileInfo) != 0) {
+        perror("Eroare la preluarea informatiilor fisierului");
+        return 0;
+    }
+
+    if (!(fileInfo.st_mode & S_IRUSR) || !(fileInfo.st_mode & S_IWUSR) || !(fileInfo.st_mode & S_IXUSR)) {
+        return 1;
+    }
+
+    return 0;
+}
+
+void izolare_fisier(const char *path) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl("/bin/sh", "sh", "verify_for_malicious.sh", path, NULL);
+        perror("Eroare la exec");
+        exit(1);
+    } else if (pid < 0) {
+        perror("Eroare la crearea procesului copil!");
+        exit(1);
+    }
+}
+
 void actualizareSnapshot(const char *director, int nivel, const char *outputDir) {
     char snapshotPath[PATH_MAX];
     snprintf(snapshotPath, sizeof(snapshotPath), "%s/snapshot.txt", outputDir);
@@ -42,11 +68,8 @@ void actualizareSnapshot(const char *director, int nivel, const char *outputDir)
     while ((intrare = readdir(dir)) != NULL) {
         if (strcmp(intrare->d_name, ".") != 0 && strcmp(intrare->d_name, "..") != 0) {
             char filePath[PATH_MAX];
-            char linkPath[PATH_MAX+1], spatii[PATH_MAX];
+            char linkPath[PATH_MAX+1];
             int n;
-
-            memset(spatii, ' ', 2*nivel);
-            spatii[2*nivel]='\0';
 
             snprintf(filePath, sizeof(filePath), "%s/%s", director, intrare->d_name);
 
@@ -66,8 +89,8 @@ void actualizareSnapshot(const char *director, int nivel, const char *outputDir)
             }
 
             if(S_ISLNK(fileInfo.st_mode)){
-                n=readlink(filePath, linkPath, sizeof(linkPath));
-                linkPath[n]='\0';
+                n = readlink(filePath, linkPath, sizeof(linkPath));
+                linkPath[n] = '\0';
                 fprintf(snapshotFile, "%s\t%s -> %s\t%s\t%ld\n", intrare->d_name, filePath, linkPath, buffer, fileInfo.st_size);
             }
             else{
@@ -75,6 +98,10 @@ void actualizareSnapshot(const char *director, int nivel, const char *outputDir)
                 if(fileInfo.st_mode & S_IXUSR || fileInfo.st_mode & S_IXGRP || fileInfo.st_mode & S_IXOTH)
                     fprintf(snapshotFile, "*");
                 fprintf(snapshotFile, "\n");
+            }
+
+            if(verificare_drepturi(filePath)){
+                izolare_fisier(filePath);
             }
         }
     }
@@ -160,4 +187,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
